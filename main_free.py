@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
 import torch.optim
+import torchvision
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 from torch.autograd import Variable
@@ -16,7 +17,7 @@ import numpy as np
 from utils import *
 from validation import validate, validate_pgd
 import torchvision.models as models
-
+import matplotlib.pyplot as plt
 
 def parse_args():
     parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
@@ -93,31 +94,57 @@ def main():
 
             
     # Initiate data loaders
-    traindir = os.path.join(configs.data, 'train')
-    valdir = os.path.join(configs.data, 'val')
+#     traindir = os.path.join(configs.data, 'train')
+#     valdir = os.path.join(configs.data, 'val')
     
-    train_dataset = datasets.ImageFolder(
-        traindir,
-        transforms.Compose([
-            transforms.RandomResizedCrop(configs.DATA.crop_size),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-        ]))
+#     train_dataset = datasets.ImageFolder(
+#         traindir,
+#         transforms.Compose([
+#             transforms.RandomResizedCrop(configs.DATA.crop_size),
+#             transforms.RandomHorizontalFlip(),
+#             transforms.ToTensor(),
+#         ]))
 
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=configs.DATA.batch_size, shuffle=True,
-        num_workers=configs.DATA.workers, pin_memory=True, sampler=None)
+#     train_loader = torch.utils.data.DataLoader(
+#         train_dataset, batch_size=configs.DATA.batch_size, shuffle=True,
+#         num_workers=configs.DATA.workers, pin_memory=True, sampler=None)
     
-    normalize = transforms.Normalize(mean=configs.TRAIN.mean,
-                                    std=configs.TRAIN.std)
-    val_loader = torch.utils.data.DataLoader(
-        datasets.ImageFolder(valdir, transforms.Compose([
-            transforms.Resize(configs.DATA.img_size),
-            transforms.CenterCrop(configs.DATA.crop_size),
-            transforms.ToTensor(),
-        ])),
-        batch_size=configs.DATA.batch_size, shuffle=False,
-        num_workers=configs.DATA.workers, pin_memory=True)
+#     normalize = transforms.Normalize(mean=configs.TRAIN.mean,
+#                                     std=configs.TRAIN.std)
+#     val_loader = torch.utils.data.DataLoader(
+#         datasets.ImageFolder(valdir, transforms.Compose([
+#             transforms.Resize(configs.DATA.img_size),
+#             transforms.CenterCrop(configs.DATA.crop_size),
+#             transforms.ToTensor(),
+#         ])),
+#         batch_size=configs.DATA.batch_size, shuffle=False,
+#         num_workers=configs.DATA.workers, pin_memory=True)
+
+
+
+    transform_train = transforms.Compose([
+      transforms.RandomCrop(32, padding=4),
+      transforms.RandomHorizontalFlip(),
+      transforms.ToTensor(),
+      transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    ])
+
+    transform_test = transforms.Compose([
+      transforms.ToTensor(),
+      transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    ])
+
+    trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
+    train_loader = torch.utils.data.DataLoader(trainset, batch_size=128, shuffle=Falsee, num_workers=2)
+
+    valset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
+    val_loader = torch.utils.data.DataLoader(valset, batch_size=100, shuffle=False, num_workers=2)    
+
+
+
+
+
+
 
     # If in evaluate mode: perform validation on PGD attacks as well as clean samples
     if configs.evaluate:
@@ -149,9 +176,10 @@ def main():
         }, is_best, os.path.join('trained_models', configs.output_name))
         
     # Automatically perform PGD Attacks at the end of training
-    logger.info(pad_str(' Performing PGD Attacks '))
-    for pgd_param in configs.ADV.pgd_attack:
-        validate_pgd(val_loader, model, criterion, pgd_param[0], pgd_param[1], configs, logger)
+        if epoch %10 == 0:
+            logger.info(pad_str(' Performing PGD Attacks '))
+            for pgd_param in configs.ADV.pgd_attack:
+                  validate_pgd(val_loader, model, criterion, pgd_param[0], pgd_param[1], configs, logger)
 
         
 # Free Adversarial Training Module        
@@ -172,6 +200,8 @@ def train(train_loader, model, criterion, optimizer, epoch):
     # switch to train mode
     model.train()
     for i, (input, target) in enumerate(train_loader):
+        if i > 100 :
+              continue;
         end = time.time()
         input = input.cuda(non_blocking=True)
         target = target.cuda(non_blocking=True)
@@ -182,6 +212,18 @@ def train(train_loader, model, criterion, optimizer, epoch):
             in1 = input + noise_batch
             in1.clamp_(0, 1.0)
             in1.sub_(mean).div_(std)
+
+            img2 = getdisplayimage(in1[0])
+            img1 = getdisplayimage(input[0])
+           
+            fig = plt.figure()
+            ax1 = fig.add_subplot(2, 2, 1)
+            ax1.imshow(img1)
+            ax2 = fig.add_subplot(2, 2, 2)
+            ax2.imshow(img2)
+            plt.show()
+
+
             output = model(in1)
             loss = criterion(output, target)
             
@@ -214,6 +256,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
                        epoch, i, len(train_loader), batch_time=batch_time,
                        data_time=data_time, top1=top1, top5=top5,cls_loss=losses))
                 sys.stdout.flush()
+
 
 if __name__ == '__main__':
     main()
